@@ -1,151 +1,466 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Find & Replace</title>
+  <meta charset="UTF-8"/>
+  <title>Simple Translate</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap');
-    :root {
-      --bg:#141414; --surface:#1e1e1e; --input-bg:#252525; --input-border:#333;
-      --input-focus:#2d6a2d; --green-dark:#1a4d1a; --green-mid:#206020;
-      --green-bright:#2d8c2d; --green-accent:#3aaa3a; --text:#d4d4d4;
-      --text-muted:#888; --label:#aaa; --radius:10px;
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #2b2b2b;
+      color: #e0e0e0;
+      width: 400px;
+      height: 500px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }
-    * { box-sizing:border-box; margin:0; padding:0; }
-    body { width:320px; background:var(--bg); font-family:'DM Sans',sans-serif; color:var(--text); padding:18px; user-select:none; }
 
-    header { display:flex; align-items:center; gap:9px; margin-bottom:14px; }
-    .logo { width:26px; height:26px; background:var(--green-mid); border-radius:6px; display:flex; align-items:center; justify-content:center; }
-    .logo svg { width:14px; height:14px; fill:#6ee86e; }
-    header h1 { font-size:13px; font-weight:600; letter-spacing:.03em; }
-    .status-pill { margin-left:auto; font-size:10px; font-family:'DM Mono',monospace; color:var(--text-muted); background:var(--surface); padding:3px 8px; border-radius:20px; border:1px solid var(--input-border); transition:all .2s; }
-    .status-pill.active { color:var(--green-accent); border-color:var(--green-mid); }
-
-    /* Tab switcher */
-    .tab-bar { display:flex; background:var(--surface); border:1px solid var(--input-border); border-radius:var(--radius); padding:3px; gap:3px; margin-bottom:14px; }
-    .tab-btn { flex:1; padding:7px 4px; border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:11px; font-weight:600; cursor:pointer; background:transparent; color:var(--text-muted); transition:all .15s; }
-    .tab-btn.active { background:var(--green-mid); color:#a8e6a8; }
-    .tab-btn:not(.active):hover { color:var(--text); background:#2a2a2a; }
-
-    /* Panels */
-    .panel { display:none; }
-    .panel.active { display:block; }
-
-    .field { margin-bottom:12px; }
-    .field > label { display:block; font-size:10px; font-weight:600; color:var(--label); letter-spacing:.07em; text-transform:uppercase; margin-bottom:5px; }
-    input[type="text"] { width:100%; background:var(--input-bg); border:1px solid var(--input-border); border-radius:var(--radius); padding:9px 12px; font-family:'DM Mono',monospace; font-size:13px; color:var(--text); outline:none; transition:border-color .2s, box-shadow .2s; }
-    input[type="text"]::placeholder { color:#444; }
-    input[type="text"]:focus { border-color:var(--input-focus); box-shadow:0 0 0 3px rgba(45,106,45,.2); }
-
-    .match-count { font-size:10px; font-family:'DM Mono',monospace; color:var(--text-muted); margin-top:4px; min-height:13px; }
-    .match-count.found { color:var(--green-accent); }
-    .match-count.none  { color:#c0392b; }
-
-    .mode-toggle { display:flex; background:var(--surface); border:1px solid var(--input-border); border-radius:var(--radius); padding:3px; gap:3px; margin-bottom:12px; }
-    .mode-btn { flex:1; padding:6px 4px; border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:11px; font-weight:600; cursor:pointer; background:transparent; color:var(--text-muted); transition:all .15s; }
-    .mode-btn.active { background:var(--green-mid); color:#a8e6a8; }
-    .mode-btn:not(.active):hover { color:var(--text); background:#2a2a2a; }
-
-    .options-row { display:flex; gap:14px; margin-bottom:12px; }
-    .checkbox-label { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted); cursor:pointer; }
-    .checkbox-label input[type="checkbox"] { accent-color:var(--green-accent); width:13px; height:13px; cursor:pointer; }
-    .checkbox-label:hover { color:var(--text); }
-
-    .btn-row   { display:grid; grid-template-columns:1fr 1fr 1fr; gap:7px; margin-bottom:7px; }
-    .btn-row-2 { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
-    button { padding:9px 6px; border:none; border-radius:var(--radius); font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; cursor:pointer; transition:background .15s, transform .1s; }
-    button:active { transform:scale(.97); }
-    .btn-primary   { background:var(--green-mid); color:#a8e6a8; }
-    .btn-primary:hover { background:var(--green-bright); }
-    .btn-secondary { background:var(--green-dark); color:#7ecf7e; }
-    .btn-secondary:hover { background:var(--green-mid); }
-    .btn-danger    { background:#3a1a1a; color:#e08080; border:1px solid #5a2a2a; }
-    .btn-danger:hover { background:#4a2020; }
-
-    /* Form tools panel */
-    .form-tool-card {
-      background:var(--surface); border:1px solid var(--input-border);
-      border-radius:var(--radius); padding:14px; margin-bottom:10px;
+    .panel {
+      background: #1e1e1e;
+      border-bottom: 1px solid #3a3a3a;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      overflow: hidden;
     }
-    .form-tool-card h3 { font-size:11px; font-weight:600; color:var(--label); letter-spacing:.07em; text-transform:uppercase; margin-bottom:8px; }
-    .form-tool-card p  { font-size:11px; color:var(--text-muted); margin-bottom:10px; line-height:1.5; }
-    .btn-full { width:100%; padding:10px; margin-bottom:7px; font-size:13px; }
-    .btn-full:last-child { margin-bottom:0; }
 
-    .hint { font-size:10px; color:#444; text-align:center; margin-top:11px; font-family:'DM Mono',monospace; }
-    .hint kbd { background:#252525; border:1px solid #333; border-radius:4px; padding:1px 5px; font-size:9px; color:#666; }
+    textarea, .result-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 14px;
+      font-size: 14px;
+      line-height: 1.55;
+      color: #e0e0e0;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
 
-    .legend { display:none; align-items:center; gap:5px; font-size:10px; color:var(--text-muted); font-family:'DM Mono',monospace; margin-bottom:10px; }
-    .legend-dot { width:8px; height:8px; border-radius:2px; display:inline-block; }
+    textarea {
+      background: transparent;
+      border: none;
+      outline: none;
+      resize: none;
+      font-family: inherit;
+      cursor: text;
+    }
+    textarea::placeholder { color: #555; }
+
+    .result-content { cursor: default; }
+    .placeholder { color: #555; }
+
+    .toolbar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 4px;
+      padding: 4px 8px;
+      background: #1a1a1a;
+      border-top: 1px solid #2e2e2e;
+    }
+
+    .icon-btn {
+      background: none; border: none; cursor: pointer;
+      color: #777; padding: 3px; border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      transition: color 0.15s, background 0.15s;
+    }
+    .icon-btn:hover { color: #bbb; background: rgba(255,255,255,0.07); }
+    .icon-btn.active { color: #4a90d9; }
+    .icon-btn svg { width: 18px; height: 18px; }
+
+    .status-bar {
+      flex-shrink: 0;
+      display: flex; align-items: center;
+      padding: 4px 14px;
+      background: #272727;
+      border-bottom: 1px solid #3a3a3a;
+      min-height: 26px;
+    }
+    .detected-info { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #4a90d9; }
+    .spinner {
+      width: 11px; height: 11px;
+      border: 1.5px solid #444; border-top-color: #4a90d9;
+      border-radius: 50%;
+      animation: spin 0.65s linear infinite;
+      display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .bottom-bar {
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 14px;
+      background: #2b2b2b;
+      border-top: 1px solid #3a3a3a;
+    }
+    .lang-wrap { position: relative; }
+    .lang-select {
+      appearance: none; -webkit-appearance: none;
+      background: #222; border: 1px solid #4a4a4a;
+      color: #e0e0e0; font-size: 13px;
+      padding: 6px 28px 6px 10px;
+      border-radius: 4px; cursor: pointer;
+      outline: none; font-family: inherit;
+      min-width: 160px; transition: border-color 0.15s;
+    }
+    .lang-select:hover, .lang-select:focus { border-color: #4a90d9; }
+    .caret { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #888; font-size: 11px; }
+
+    .error-banner { flex-shrink: 0; background: rgba(200,60,60,0.1); border-top: 1px solid rgba(200,60,60,0.25); color: #d06060; font-size: 12px; padding: 6px 14px; display: none; }
+
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e1e1e; }
+    ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; cursor: default; }
+    ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+    /* ── SETTINGS OVERLAY ── */
+    .settings-overlay {
+      position: absolute;
+      inset: 0;
+      background: #1e1e1e;
+      z-index: 100;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .settings-overlay.open { display: flex; }
+
+    .settings-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid #3a3a3a;
+      background: #272727;
+      flex-shrink: 0;
+    }
+    .settings-header h2 {
+      font-size: 14px; font-weight: 600; color: #e0e0e0; letter-spacing: 0.02em;
+    }
+    .close-settings-btn {
+      background: none; border: none; cursor: pointer;
+      color: #777; padding: 3px; border-radius: 4px;
+      display: flex; align-items: center;
+      transition: color 0.15s, background 0.15s;
+    }
+    .close-settings-btn:hover { color: #bbb; background: rgba(255,255,255,0.07); }
+    .close-settings-btn svg { width: 18px; height: 18px; }
+
+    .settings-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 16px;
+    }
+
+    .settings-section {
+      margin-bottom: 24px;
+    }
+    .settings-section-title {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: #5a8fc4;
+      margin-bottom: 12px;
+    }
+
+    .toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 12px;
+      background: #252525;
+      border-radius: 6px;
+      border: 1px solid #333;
+      margin-bottom: 10px;
+    }
+    .toggle-label {
+      font-size: 13px; color: #c8c8c8; line-height: 1.4;
+      flex: 1; padding-right: 12px;
+    }
+    .toggle-label small { display: block; font-size: 11px; color: #666; margin-top: 2px; }
+
+    /* Toggle switch */
+    .toggle-switch { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-track {
+      position: absolute; inset: 0;
+      background: #3a3a3a; border-radius: 20px;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .toggle-track::after {
+      content: ''; position: absolute;
+      left: 3px; top: 3px;
+      width: 14px; height: 14px;
+      background: #777; border-radius: 50%;
+      transition: transform 0.2s, background 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-track { background: #1e4a7a; }
+    .toggle-switch input:checked + .toggle-track::after {
+      transform: translateX(16px); background: #4a90d9;
+    }
+
+    /* ── Ignored languages config ── */
+    .auto-lang-config {
+      padding: 12px;
+      background: #222;
+      border-radius: 6px;
+      border: 1px solid #333;
+      display: none;
+    }
+    .auto-lang-config.visible { display: block; }
+
+    /* Radio buttons */
+    .radio-group {
+      display: flex; flex-direction: column; gap: 6px;
+      margin-bottom: 12px;
+    }
+    .radio-row {
+      display: flex; align-items: center; gap: 8px;
+      cursor: pointer;
+    }
+    .radio-row input[type="radio"] {
+      appearance: none; -webkit-appearance: none;
+      width: 15px; height: 15px; flex-shrink: 0;
+      border: 1.5px solid #555; border-radius: 50%;
+      background: #1a1a1a; cursor: pointer;
+      position: relative; transition: border-color 0.15s;
+    }
+    .radio-row input[type="radio"]:checked {
+      border-color: #4a90d9;
+    }
+    .radio-row input[type="radio"]:checked::after {
+      content: ''; position: absolute;
+      inset: 3px; background: #4a90d9; border-radius: 50%;
+    }
+    .radio-row input[type="radio"]:hover { border-color: #4a90d9; }
+    .radio-label {
+      font-size: 12.5px; color: #c8c8c8; cursor: pointer; user-select: none;
+    }
+
+    /* Ignored list textarea */
+    .ignored-langs-area {
+      width: 100%;
+      min-height: 72px;
+      max-height: 110px;
+      background: #1a1a1a;
+      border: 1px solid #3a3a3a;
+      border-radius: 4px;
+      color: #e0e0e0;
+      font-size: 12px;
+      font-family: inherit;
+      padding: 7px 9px;
+      resize: vertical;
+      outline: none;
+      line-height: 1.5;
+      transition: border-color 0.15s;
+      margin-bottom: 8px;
+    }
+    .ignored-langs-area:focus { border-color: #4a90d9; }
+
+    /* Add language row */
+    .add-lang-row {
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 14px;
+    }
+    .add-lang-select-wrap { position: relative; flex: 1; }
+    .add-lang-select {
+      width: 100%;
+      appearance: none; -webkit-appearance: none;
+      background: #1a1a1a; border: 1px solid #3a3a3a;
+      color: #e0e0e0; font-size: 12px;
+      padding: 5px 24px 5px 8px;
+      border-radius: 4px; cursor: pointer;
+      outline: none; font-family: inherit;
+      transition: border-color 0.15s;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23666'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+    }
+    .add-lang-select:hover, .add-lang-select:focus { border-color: #4a90d9; }
+    .add-lang-btn {
+      background: #1e3a5c; border: 1px solid #2a5080;
+      color: #7ab8f5; font-size: 12px; font-family: inherit;
+      padding: 5px 10px; border-radius: 4px; cursor: pointer;
+      white-space: nowrap; transition: background 0.15s, color 0.15s;
+      flex-shrink: 0;
+    }
+    .add-lang-btn:hover { background: #254a72; color: #a8d0ff; }
+
+    /* Target language row */
+    .target-lang-section-title {
+      font-size: 11px; color: #777; margin-bottom: 6px;
+    }
+    .target-lang-row {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .target-lang-select-wrap { position: relative; flex: 1; }
+    .target-lang-select {
+      width: 100%;
+      appearance: none; -webkit-appearance: none;
+      background: #1a1a1a; border: 1px solid #3a3a3a;
+      color: #e0e0e0; font-size: 12px;
+      padding: 6px 24px 6px 8px;
+      border-radius: 4px; cursor: pointer;
+      outline: none; font-family: inherit;
+      transition: border-color 0.15s;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23666'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+    }
+    .target-lang-select:hover, .target-lang-select:focus { border-color: #4a90d9; }
+
+    .settings-footer {
+      flex-shrink: 0;
+      padding: 10px 16px;
+      background: #272727;
+      border-top: 1px solid #3a3a3a;
+      font-size: 11px; color: #555; text-align: center;
+    }
   </style>
 </head>
 <body>
-  <header>
-    <div class="logo">
-      <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-        <path d="M1 3h10v1.5H1V3zm0 4h7v1.5H1V7zm0 4h10v1.5H1V11zm12-5.5l2 2-2 2-1-1 1-1-1-1 1-1z"/>
+
+<!-- SOURCE PANEL -->
+<div class="panel">
+  <textarea id="sourceText" placeholder="Enter text" spellcheck="false" maxlength="5000"></textarea>
+  <div class="toolbar">
+    <button class="icon-btn" id="copySourceBtn" title="Copy">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
       </svg>
-    </div>
-    <h1>Find &amp; Replace</h1>
-    <span class="status-pill" id="statusPill">idle</span>
-  </header>
+    </button>
+    <button class="icon-btn" id="speakSourceBtn" title="Listen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+        <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+      </svg>
+    </button>
+  </div>
+</div>
 
-  <!-- Tab bar -->
-  <div class="tab-bar">
-    <button class="tab-btn active" id="tabFind">🔍 Find &amp; Replace</button>
-    <button class="tab-btn"       id="tabForms">📋 Form Tools</button>
+<!-- STATUS BAR -->
+<div class="status-bar">
+  <div class="detected-info">
+    <div class="spinner" id="spinner"></div>
+    <span id="detectedLang"></span>
+  </div>
+</div>
+
+<!-- RESULT PANEL -->
+<div class="panel">
+  <div class="result-content" id="resultText"><span class="placeholder"></span></div>
+  <div class="toolbar">
+    <button class="icon-btn" id="copyBtn" title="Copy">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+      </svg>
+    </button>
+    <button class="icon-btn" id="speakResultBtn" title="Listen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+        <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<!-- ERROR -->
+<div class="error-banner" id="errorBanner"></div>
+
+<!-- BOTTOM BAR -->
+<div class="bottom-bar">
+  <button class="icon-btn" id="openSettingsBtn" title="Settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  </button>
+
+  <div class="lang-wrap">
+    <select class="lang-select" id="targetLang"></select>
+    <span class="caret">▾</span>
+  </div>
+</div>
+
+<!-- ══════════════ SETTINGS OVERLAY ══════════════ -->
+<div class="settings-overlay" id="settingsOverlay">
+
+  <div class="settings-header">
+    <h2>Settings</h2>
+    <button class="close-settings-btn" id="closeSettingsBtn" title="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="18" y1="6" x2="6" y2="18"/>
+        <line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
   </div>
 
-  <!-- ── Find & Replace panel ── -->
-  <div class="panel active" id="panelFind">
-    <div class="field">
-      <label>Search for</label>
-      <input type="text" id="searchInput" placeholder="phrase to find…" autocomplete="off" spellcheck="false" />
-      <div class="match-count" id="matchCount"></div>
+  <div class="settings-body">
+
+    <!-- Auto-translate on selection -->
+    <div class="settings-section">
+      <div class="settings-section-title">Auto-translate on selection</div>
+
+      <div class="toggle-row">
+        <div class="toggle-label">
+          Auto-translate selected text
+          <small>Shows a popup when you select text not in an ignored language</small>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="autoTranslateEnabled">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+
+      <!-- Language configuration (shown when toggle is on) -->
+      <div class="auto-lang-config" id="autoLangConfig">
+
+        <!-- Mode radio buttons -->
+        <div class="radio-group">
+          <label class="radio-row">
+            <input type="radio" name="langListMode" id="modeTranslateThese" value="translate">
+            <span class="radio-label">Translate these languages</span>
+          </label>
+          <label class="radio-row">
+            <input type="radio" name="langListMode" id="modeDontTranslate" value="ignore">
+            <span class="radio-label">Don't translate these languages</span>
+          </label>
+        </div>
+
+        <!-- Language list textarea -->
+        <textarea
+          class="ignored-langs-area"
+          id="ignoredLangsArea"
+          placeholder="e.g. English, Polish, German"
+          spellcheck="false"
+        ></textarea>
+
+        <!-- Add language row -->
+        <div class="add-lang-row">
+          <div class="add-lang-select-wrap">
+            <select class="add-lang-select" id="addLangSelect"></select>
+          </div>
+          <button class="add-lang-btn" id="addLangBtn">Add language</button>
+        </div>
+
+        <!-- Target language -->
+        <div class="target-lang-section-title">Translate into</div>
+        <div class="target-lang-row">
+          <div class="target-lang-select-wrap">
+            <select class="target-lang-select" id="autoTargetLang"></select>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="field">
-      <label>Replace with</label>
-      <input type="text" id="replaceInput" placeholder="replacement text…" autocomplete="off" spellcheck="false" />
-    </div>
-    <div class="options-row">
-      <label class="checkbox-label"><input type="checkbox" id="caseSensitive" /> Case sensitive</label>
-      <label class="checkbox-label"><input type="checkbox" id="wholeWord" /> Whole word</label>
-    </div>
-    <div class="mode-toggle">
-      <button class="mode-btn active" id="modeInputs">✏️ Inputs only</button>
-      <button class="mode-btn"        id="modeAll">🔍 All page text</button>
-    </div>
-    <div class="legend" id="legend">
-      <span class="legend-dot" style="background:#ffb300"></span><span>editable</span>
-      <span class="legend-dot" style="background:#4a90d9;margin-left:10px"></span><span>read-only</span>
-    </div>
-    <div class="btn-row">
-      <button class="btn-secondary" id="btnPrev">◀ Prev</button>
-      <button class="btn-primary"   id="btnReplace">Replace</button>
-      <button class="btn-secondary" id="btnNext">Next ▶</button>
-    </div>
-    <div class="btn-row-2" style="margin-top:7px">
-      <button class="btn-primary"   id="btnReplaceAll">Replace All</button>
-      <button class="btn-secondary" id="btnReplaceNext">Replace Next</button>
-    </div>
-    <div class="hint"><kbd>Enter</kbd> to replace · <kbd>Tab</kbd> between fields</div>
+
   </div>
 
-  <!-- ── Form Tools panel ── -->
-  <div class="panel" id="panelForms">
-    <div class="form-tool-card">
-      <h3>📋 Copy &amp; Paste Form Data</h3>
-      <p>Copy all field values on this page, then paste them into the same fields on another page.</p>
-      <button class="btn-primary btn-full" id="btnCopyForms">📋 Copy all form data</button>
-      <button class="btn-secondary btn-full" id="btnPasteForms">📥 Paste form data</button>
-    </div>
-    <div class="form-tool-card">
-      <h3>🗑️ Clear Forms</h3>
-      <p>Empty all visible input fields, textareas, and selects on this page.</p>
-      <button class="btn-danger btn-full" id="btnClearForms">🗑️ Clear all fields</button>
-    </div>
+  <div class="settings-footer">
+    Settings are saved automatically
   </div>
+</div>
 
-  <script src="popup.js"></script>
+<script src="popup.js"></script>
 </body>
 </html>

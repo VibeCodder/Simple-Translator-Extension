@@ -1,423 +1,377 @@
-(() => {
-  const VERSION = 'fr_v15';
-  if (window[VERSION]) return;
-  window[VERSION] = true;
-  ['__findReplaceLoaded','fr_v2','fr_v3','fr_v4','fr_v5','fr_v6','fr_v7','fr_v8','fr_v9','fr_v10','fr_v11','fr_v12','fr_v13','fr_v14'].forEach(k => delete window[k]);
+// Guard against double-injection
+if (typeof window.__simpleTranslateLoaded === 'undefined') {
+window.__simpleTranslateLoaded = true;
 
-  // ── State ────────────────────────────────────────────────────────────────
-  let state = {
-    search: '', replace: '', caseSensitive: false,
-    wholeWord: false, searchAll: false, matches: [], current: -1,
-  };
+// ── State ──
+let settings = {
+  autoTranslateEnabled: false,
+  ignoredLangs: ['en', 'pl'],   // array of language codes
+  langListMode: 'ignore',        // 'ignore' = skip listed langs | 'translate' = only translate listed langs
+  autoTargetLang: 'en',
+  targetLang: 'en',
+};
 
-  // ── Styles ───────────────────────────────────────────────────────────────
-  const STYLE_ID = '__fr_style';
-  if (!document.getElementById(STYLE_ID)) {
-    const s = document.createElement('style');
-    s.id = STYLE_ID;
-    s.textContent = `
-      .__fr_hl        { background:#ffb300 !important;color:#000 !important;border-radius:2px; }
-      .__fr_hl_act    { background:#ff6d00 !important;color:#fff !important;border-radius:2px;outline:2px solid #ff6d00; }
-      .__fr_hl_ro     { background:#4a90d9 !important;color:#fff !important;border-radius:2px; }
-      .__fr_hl_ro_act { background:#1a6abf !important;color:#fff !important;border-radius:2px;outline:2px solid #4a90d9; }
-      .__fr_toast {
-        position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
-        background:#1a4d1a; color:#a8e6a8; border:1px solid #2d8c2d;
-        padding:10px 20px; border-radius:10px; font-family:'DM Sans',sans-serif;
-        font-size:13px; font-weight:600; z-index:2147483647;
-        box-shadow:0 4px 20px rgba(0,0,0,.5); pointer-events:none;
-        animation:__fr_fadein .2s ease;
-      }
-      .__fr_toast.error { background:#4d1a1a; color:#e6a8a8; border-color:#8c2d2d; }
-      @keyframes __fr_fadein { from{opacity:0;transform:translateX(-50%) translateY(8px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
-    `;
-    document.head.appendChild(s);
+// Load settings from chrome.storage on inject
+chrome.storage.local.get([
+  'st_autoTranslateEnabled',
+  'st_ignoredLangs',
+  'st_langListMode',
+  'st_autoTargetLang',
+  'st_targetLang',
+], (result) => {
+  if (result.st_autoTranslateEnabled !== undefined)
+    settings.autoTranslateEnabled = result.st_autoTranslateEnabled === true || result.st_autoTranslateEnabled === 'true';
+  if (result.st_ignoredLangs)   settings.ignoredLangs   = result.st_ignoredLangs;
+  if (result.st_langListMode)   settings.langListMode    = result.st_langListMode;
+  if (result.st_autoTargetLang) settings.autoTargetLang = result.st_autoTargetLang;
+  if (result.st_targetLang)     settings.targetLang     = result.st_targetLang;
+});
+
+// ── Listen for messages from popup ──
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'getSelectedText') {
+    sendResponse({ text: window.getSelection().toString().trim() });
   }
-
-  // ── Toast notifications ───────────────────────────────────────────────────
-  function showToast(msg, isError = false) {
-    document.querySelectorAll('.__fr_toast').forEach(t => t.remove());
-    const t = document.createElement('div');
-    t.className = '__fr_toast' + (isError ? ' error' : '');
-    t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => t.remove(), 2800);
-  }
-  window.__frShowToast = showToast;
-
-  // ── Find & Replace helpers ────────────────────────────────────────────────
-  function buildRegex(search, caseSensitive, wholeWord) {
-    if (!search) return null;
-    let esc = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (wholeWord) esc = `\\b${esc}\\b`;
-    return new RegExp(esc, caseSensitive ? 'g' : 'gi');
-  }
-
-  function isFormField(el) {
-    if (!el) return false;
-    if (el.tagName === 'INPUT') {
-      return ['text','search','email','url','tel','number','password',
-              'date','datetime-local','month','week','time']
-              .includes((el.type || 'text').toLowerCase());
-    }
-    return el.tagName === 'TEXTAREA';
-  }
-
-  function nearestFormField(el) {
-    let cur = el;
-    while (cur && cur !== document.body) {
-      if (isFormField(cur)) return cur;
-      cur = cur.parentElement;
-    }
-    return null;
-  }
-
-  function getVal(el) { return el.isContentEditable ? el.innerText : el.value; }
-
-  function setVal(el, value) {
-    if (el.isContentEditable) {
-      el.innerText = value;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-    } else {
-      const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-      if (setter) setter.call(el, value); else el.value = value;
-      el.dispatchEvent(new Event('input',  { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-  }
-
-  const HL_CLASSES = ['__fr_hl','__fr_hl_act','__fr_hl_ro','__fr_hl_ro_act'];
-
-  function clearHighlights() {
-    document.querySelectorAll(HL_CLASSES.map(c => '.' + c).join(',')).forEach(el => {
-      const parent = el.parentNode;
-      if (parent) {
-        parent.replaceChild(document.createTextNode(el.textContent), el);
-        parent.normalize();
-      }
+  if (request.action === 'updateSettings') {
+    settings = { ...settings, ...request.settings };
+    chrome.storage.local.set({
+      st_autoTranslateEnabled: settings.autoTranslateEnabled,
+      st_ignoredLangs:         settings.ignoredLangs,
+      st_langListMode:         settings.langListMode,
+      st_autoTargetLang:       settings.autoTargetLang,
+      st_targetLang:           settings.targetLang,
     });
   }
+  return true;
+});
 
-  function highlightTextNode(textNode, regex, readOnly) {
-    const cls = readOnly ? '__fr_hl_ro' : '__fr_hl';
-    const text = textNode.textContent;
-    const hits = [];
-    let m;
-    regex.lastIndex = 0;
-    while ((m = regex.exec(text)) !== null)
-      hits.push({ start: m.index, end: m.index + m[0].length });
-    if (!hits.length) return [];
+// ── Inject shared styles once ──
+function ensureStyles() {
+  // no shared styles needed
+}
 
-    const frag = document.createDocumentFragment();
-    let last = 0;
-    const spans = [];
-    for (const { start, end } of hits) {
-      if (start > last) frag.appendChild(document.createTextNode(text.slice(last, start)));
-      const sp = document.createElement('span');
-      sp.className = cls;
-      sp.textContent = text.slice(start, end);
-      frag.appendChild(sp);
-      spans.push(sp);
-      last = end;
-    }
-    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
-    textNode.parentNode.replaceChild(frag, textNode);
-    return spans;
+// ── Spinner (removed) ──
+function showSpinner(x, y) {}
+function removeSpinner() {}
+
+// ── Translation popup ──
+let translatePopup = null;
+
+function removePopup() {
+  if (translatePopup) {
+    translatePopup.remove();
+    translatePopup = null;
+    document.removeEventListener('mousedown', onOutsideClick);
   }
+}
 
-  function findAll() {
-    clearHighlights();
-    state.matches = [];
-    state.current = -1;
-    const { search, caseSensitive, wholeWord, searchAll } = state;
-    if (!search) return;
+function createPopup(x, y, translatedText, detectedLangName, targetLangCode) {
+  ensureStyles();
+  removePopup();
 
-    // ── Pass 1: input/textarea — these have no text node children so the
-    //   TreeWalker never visits them. Query them directly.
-    document.querySelectorAll('input, textarea').forEach(el => {
-      if (!isFormField(el)) return;
-      const style = getComputedStyle(el);
-      if (style.display === 'none' || style.visibility === 'hidden') return;
-      const val = getVal(el);
-      const re = buildRegex(search, caseSensitive, wholeWord);
-      let m; re.lastIndex = 0;
-      while ((m = re.exec(val)) !== null)
-        state.matches.push({ type: 'input', inputEl: el, start: m.index, end: m.index + m[0].length });
+  const popup = document.createElement('div');
+  popup.id = '__simple_translate_popup__';
+
+  const targetName = LANG_NAMES_MAP[targetLangCode] || targetLangCode.toUpperCase();
+
+  popup.innerHTML = `
+    <div id="__st_header__" style="
+      padding: 7px 10px 6px;
+      background: #272727;
+      border-bottom: 1px solid #333;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px;
+      user-select: none;
+    ">
+      <button id="__st_drag__" title="Move" style="
+        background: none; border: none; cursor: grab;
+        color: #555; padding: 1px 4px 1px 0; flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center;
+        border-radius: 3px; transition: color 0.15s;
+      ">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+          <!-- up -->
+          <polygon points="7,0 5,3 9,3"/>
+          <!-- down -->
+          <polygon points="7,14 5,11 9,11"/>
+          <!-- left -->
+          <polygon points="0,7 3,5 3,9"/>
+          <!-- right -->
+          <polygon points="14,7 11,5 11,9"/>
+          <!-- center cross -->
+          <rect x="4.5" y="4.5" width="5" height="5"/>
+        </svg>
+      </button>
+      <span style="font-size: 11px; color: #4a90d9; font-weight: 500; white-space: nowrap; flex: 1;">
+        ${escapeHtml(detectedLangName)} &rarr; ${escapeHtml(targetName)}
+      </span>
+      <button id="__st_close__" style="
+        background: none; border: none; cursor: pointer;
+        color: #555; font-size: 14px; line-height: 1;
+        padding: 0 2px; border-radius: 3px; flex-shrink: 0;
+      " title="Close">&#x2715;</button>
+    </div>
+    <div style="
+      padding: 10px 12px; line-height: 1.55;
+      word-break: break-word; max-height: 160px; overflow-y: auto;
+    ">${escapeHtml(translatedText)}</div>
+    <div style="
+      padding: 5px 10px;
+      display: flex; justify-content: flex-end;
+      border-top: 1px solid #2a2a2a;
+    ">
+      <button id="__st_copy__" style="
+        background: none; border: 1px solid #3a3a3a; cursor: pointer;
+        color: #888; font-size: 11px; padding: 3px 8px; border-radius: 4px;
+        font-family: inherit;
+      ">Copy</button>
+    </div>
+  `;
+
+  popup.style.cssText = `
+    position: fixed;
+    z-index: 2147483647;
+    max-width: 320px;
+    min-width: 200px;
+    background: #1e1e1e;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.3);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 13px;
+    color: #e0e0e0;
+    overflow: hidden;
+    visibility: hidden;
+    left: 0; top: 0;
+  `;
+
+  (document.body || document.documentElement).appendChild(popup);
+  translatePopup = popup;
+
+  // Measure then position
+  const pw = popup.offsetWidth  || 280;
+  const ph = popup.offsetHeight || 110;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  let left = x + 12;
+  let top  = y + 12;
+  if (left + pw > vw - 8) left = x - pw - 6;
+  if (top  + ph > vh - 8) top  = y - ph - 6;
+  if (left < 8) left = 8;
+  if (top  < 8) top  = 8;
+
+  popup.style.left       = left + 'px';
+  popup.style.top        = top  + 'px';
+  popup.style.visibility = 'visible';
+
+  popup.querySelector('#__st_close__').addEventListener('click', removePopup);
+  popup.querySelector('#__st_copy__').addEventListener('click', () => {
+    navigator.clipboard.writeText(translatedText).then(() => {
+      const btn = popup.querySelector('#__st_copy__');
+      if (btn) { btn.textContent = 'Copied!'; btn.style.color = '#4a90d9'; }
     });
-
-    // ── Pass 2: walk all other text nodes in the DOM ──────────────────────
-    const WIDGET_ROLES = new Set(['textbox','searchbox','combobox','spinbutton']);
-
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        const p = node.parentElement;
-        if (!p) return NodeFilter.FILTER_REJECT;
-        if (['SCRIPT','STYLE','NOSCRIPT','IFRAME','INPUT','TEXTAREA'].includes(p.tagName))
-          return NodeFilter.FILTER_REJECT;
-        if (HL_CLASSES.some(c => p.classList.contains(c))) return NodeFilter.FILTER_REJECT;
-        if (!node.textContent.trim()) return NodeFilter.FILTER_REJECT;
-        return NodeFilter.FILTER_ACCEPT;
-      }
-    });
-
-    let node;
-    while ((node = walker.nextNode())) {
-      const p = node.parentElement;
-
-      // Check if inside a contenteditable that is a real input widget:
-      // must have a widget ARIA role on itself or direct parent.
-      const ceAncestor = p.closest('[contenteditable="true"]');
-      const isWidgetCE = ceAncestor && (
-        WIDGET_ROLES.has(ceAncestor.getAttribute('role')) ||
-        WIDGET_ROLES.has(ceAncestor.parentElement?.getAttribute('role'))
-      );
-
-      if (isWidgetCE) {
-        // Real editable widget (e.g. rich text editor with role=textbox)
-        const spans = highlightTextNode(node, buildRegex(search, caseSensitive, wholeWord), false);
-        spans.forEach(sp => state.matches.push({ type: 'dom', span: sp, readOnly: false }));
-      } else {
-        // Everything else is static page text — only included when searchAll is ON
-        if (!searchAll) continue;
-        // Check if this text node actually matches before trying to highlight
-        const re = buildRegex(search, caseSensitive, wholeWord);
-        if (!re.test(node.textContent)) continue;
-        const spans = highlightTextNode(node, re, true);
-        spans.forEach(sp => state.matches.push({ type: 'dom', span: sp, readOnly: true }));
-      }
-    }
-
-    console.debug(`[FR] findAll: inputs=${state.matches.filter(m=>m.type==='input').length} dom=${state.matches.filter(m=>m.type==='dom').length} searchAll=${searchAll} total=${state.matches.length}`);
-    if (state.matches.length) { state.current = 0; activateCurrent(); }
-  }
-
-  function activateCurrent() {
-    document.querySelectorAll('.__fr_hl_act').forEach(el => el.className = '__fr_hl');
-    document.querySelectorAll('.__fr_hl_ro_act').forEach(el => el.className = '__fr_hl_ro');
-    if (state.current < 0 || state.current >= state.matches.length) return;
-    const match = state.matches[state.current];
-    if (match.type === 'dom') {
-      match.span.className = match.readOnly ? '__fr_hl_ro_act' : '__fr_hl_act';
-      match.span.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    } else {
-      // Scroll into view but DON'T focus/select — that steals focus from the
-      // extension popup search box and causes the user's typing to overwrite it
-      match.inputEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }
-  }
-
-  function navigate(dir) {
-    if (!state.matches.length) return;
-    state.current = (state.current + dir + state.matches.length) % state.matches.length;
-    activateCurrent();
-  }
-
-  function replaceCurrent(andAdvance = false) {
-    if (!state.matches.length || state.current < 0) return;
-    const match = state.matches[state.current];
-    const prevIndex = state.current;
-
-    if (match.type === 'dom') {
-      // Replace the span with plain text in-place — no findAll() needed
-      const spanParent = match.span.parentNode;
-      if (spanParent) {
-        spanParent.replaceChild(document.createTextNode(state.replace), match.span);
-        spanParent.normalize();
-      }
-      // Remove just this match from the array, keep all others intact
-      state.matches.splice(state.current, 1);
-      if (state.matches.length === 0) {
-        state.current = -1;
-      } else {
-        // andAdvance: move to next; otherwise stay at same index (now points to next item)
-        state.current = prevIndex % state.matches.length;
-        if (andAdvance) state.current = (prevIndex) % state.matches.length;
-        activateCurrent();
-      }
-    } else {
-      const el = match.inputEl;
-      const val = getVal(el);
-      setVal(el, val.slice(0, match.start) + state.replace + val.slice(match.end));
-      const delta = state.replace.length - (match.end - match.start);
-      state.matches.splice(state.current, 1);
-      state.matches = state.matches.map(m =>
-        (m.type === 'input' && m.inputEl === el && m.start >= match.end)
-          ? { ...m, start: m.start + delta, end: m.end + delta } : m
-      );
-      if (state.matches.length === 0) {
-        state.current = -1;
-      } else {
-        state.current = prevIndex % state.matches.length;
-        if (andAdvance) state.current = prevIndex % state.matches.length;
-        activateCurrent();
-      }
-    }
-  }
-
-  function replaceAll() {
-    // Fresh find to get all current matches highlighted
-    findAll();
-    if (!state.matches.length) return;
-
-    // Replace all input/textarea fields via value API
-    const inputEls = new Set(state.matches.filter(m => m.type === 'input').map(m => m.inputEl));
-    inputEls.forEach(el => {
-      const re = buildRegex(state.search, state.caseSensitive, state.wholeWord);
-      setVal(el, getVal(el).replace(re, state.replace));
-    });
-
-    // Replace all highlighted DOM spans in one pass — don't call findAll after,
-    // that would re-highlight the newly inserted replacement text
-    document.querySelectorAll('.__fr_hl,.__fr_hl_act,.__fr_hl_ro,.__fr_hl_ro_act').forEach(sp => {
-      const spParent = sp.parentNode;
-      if (spParent) {
-        spParent.replaceChild(document.createTextNode(state.replace), sp);
-        spParent.normalize();
-      }
-    });
-
-    // Clear state — no remaining matches
-    state.matches = [];
-    state.current = -1;
-  }
-
-  // ── Form Tools ────────────────────────────────────────────────────────────
-
-  // Collect all visible, meaningful form fields with a stable index
-  function collectFormFields() {
-    const fields = [];
-    document.querySelectorAll('input, textarea, select, [contenteditable="true"]').forEach((el, idx) => {
-      // Skip hidden, submit, button, reset, file inputs
-      if (el.tagName === 'INPUT') {
-        const t = (el.type || 'text').toLowerCase();
-        if (['hidden','submit','button','reset','file','image','checkbox','radio'].includes(t)) return;
-      }
-      // Skip invisible elements
-      const rect = el.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) return;
-      const style = getComputedStyle(el);
-      if (style.display === 'none' || style.visibility === 'hidden') return;
-
-      fields.push(el);
-    });
-    return fields;
-  }
-
-  window.__frCopyForms = function() {
-    const fields = collectFormFields();
-    const data = fields.map((el, i) => {
-      let value = '';
-      if (el.tagName === 'SELECT') {
-        value = el.value;
-      } else if (el.isContentEditable) {
-        value = el.innerText;
-      } else {
-        value = el.value;
-      }
-      const label = el.getAttribute('aria-label')
-        || el.getAttribute('placeholder')
-        || el.getAttribute('name')
-        || el.getAttribute('id')
-        || `field_${i}`;
-      return { index: i, label, value, tag: el.tagName, type: el.type || '' };
-    });
-
-    // Send to background for storage (cross-tab clipboard)
-    chrome.runtime.sendMessage({ action: 'formDataCopied', data });
-
-    // Also write a human-readable version to system clipboard
-    const text = data.map(f => `[${f.label}]: ${f.value}`).join('\n');
-    navigator.clipboard.writeText(text).catch(() => {});
-
-    showToast(`📋 Copied ${data.length} field(s)`);
-    return data;
-  };
-
-  window.__frPasteForms = function() {
-    chrome.runtime.sendMessage({ action: 'requestFormClipboard' }, (response) => {
-      const data = response?.data;
-      if (!data || !data.length) {
-        showToast('⚠️ No form data in clipboard', true);
-        return;
-      }
-      const fields = collectFormFields();
-      let pasted = 0;
-      data.forEach(item => {
-        const el = fields[item.index];
-        if (!el) return;
-        if (el.tagName === 'SELECT') {
-          el.value = item.value;
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        } else if (el.isContentEditable) {
-          el.innerText = item.value;
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-        } else {
-          setVal(el, item.value);
-        }
-        pasted++;
-      });
-      showToast(`📥 Pasted into ${pasted} field(s)`);
-    });
-  };
-
-  window.__frClearForms = function() {
-    const fields = collectFormFields();
-    fields.forEach(el => {
-      if (el.tagName === 'SELECT') {
-        el.selectedIndex = 0;
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      } else if (el.isContentEditable) {
-        el.innerText = '';
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-      } else {
-        setVal(el, '');
-      }
-    });
-    showToast(`🗑️ Cleared ${fields.length} field(s)`);
-  };
-
-  // ── Message listener ──────────────────────────────────────────────────────
-  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    // Ping — just confirm script is alive
-    if (msg.action === 'ping') { sendResponse({ ok: true }); return true; }
-
-    // Form tool actions (from popup)
-    if (msg.action === 'copyForms')  { window.__frCopyForms();  sendResponse({ ok: true }); return; }
-    if (msg.action === 'pasteForms') { window.__frPasteForms(); sendResponse({ ok: true }); return; }
-    if (msg.action === 'clearForms') { window.__frClearForms(); sendResponse({ ok: true }); return; }
-
-    // Find & Replace actions
-    const prev = { ...state };
-    if (msg.search        !== undefined) state.search        = msg.search;
-    if (msg.replace       !== undefined) state.replace       = msg.replace;
-    if (msg.caseSensitive !== undefined) state.caseSensitive = msg.caseSensitive;
-    if (msg.wholeWord     !== undefined) state.wholeWord     = msg.wholeWord;
-    if (msg.searchAll     !== undefined) state.searchAll     = msg.searchAll;
-
-    const changed = state.search !== prev.search || state.caseSensitive !== prev.caseSensitive ||
-                    state.wholeWord !== prev.wholeWord || state.searchAll !== prev.searchAll;
-
-    switch (msg.action) {
-      case 'find':    findAll(); break;
-      case 'next':
-        if (!state.matches.length || changed) findAll(); else navigate(1); break;
-      case 'prev':
-        if (!state.matches.length || changed) {
-          findAll();
-          if (state.matches.length > 1) { state.current = state.matches.length - 1; activateCurrent(); }
-        } else navigate(-1);
-        break;
-      case 'replace':     if (!state.matches.length) findAll(); replaceCurrent(false); break;
-      case 'replaceNext': if (!state.matches.length) findAll(); replaceCurrent(true);  break;
-      case 'replaceAll':  replaceAll(); break;
-      case 'getState':
-        sendResponse({ search: state.search, replace: state.replace,
-                       caseSensitive: state.caseSensitive, wholeWord: state.wholeWord,
-                       searchAll: state.searchAll });
-        return true;
-    }
-    sendResponse({ total: state.matches.length, current: state.current });
-    return true;
   });
-})();
+
+  // ── Drag to move (via drag handle only) ──
+  const dragHandle = popup.querySelector('#__st_drag__');
+  let dragging = false;
+  let dragOffX = 0;
+  let dragOffY = 0;
+
+  dragHandle.addEventListener('mouseenter', () => { if (!dragging) dragHandle.style.color = '#aaa'; });
+  dragHandle.addEventListener('mouseleave', () => { if (!dragging) dragHandle.style.color = '#555'; });
+
+  dragHandle.addEventListener('mousedown', (e) => {
+    dragging = true;
+    _isDragging = true;
+    dragOffX = e.clientX - popup.getBoundingClientRect().left;
+    dragOffY = e.clientY - popup.getBoundingClientRect().top;
+    dragHandle.style.cursor = 'grabbing';
+    dragHandle.style.color  = '#4a90d9';
+    e.preventDefault();
+    e.stopPropagation();
+
+    document.addEventListener('mousemove', onDragMove);
+    document.addEventListener('mouseup',   onDragEnd);
+  });
+
+  function onDragMove(e) {
+    if (!dragging || !translatePopup) return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let nx = e.clientX - dragOffX;
+    let ny = e.clientY - dragOffY;
+    nx = Math.max(0, Math.min(nx, vw - popup.offsetWidth));
+    ny = Math.max(0, Math.min(ny, vh - popup.offsetHeight));
+    popup.style.left = nx + 'px';
+    popup.style.top  = ny + 'px';
+  }
+
+  function onDragEnd() {
+    if (!dragging) return;
+    dragging = false;
+    dragHandle.style.cursor = 'grab';
+    dragHandle.style.color  = '#555';
+    document.removeEventListener('mousemove', onDragMove);
+    document.removeEventListener('mouseup',   onDragEnd);
+    setTimeout(() => { _isDragging = false; }, 0);
+  }
+
+  // Delay registering outside-click listener so the mouseup that
+  // triggered the popup (end of text selection) doesn't immediately close it
+  setTimeout(() => {
+    document.addEventListener('mousedown', onOutsideClick);
+  }, 200);
+}
+
+let _isDragging = false;
+
+function onOutsideClick(e) {
+  if (_isDragging) return;
+  if (translatePopup && !translatePopup.contains(e.target)) {
+    removePopup();
+  }
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Language name map ──
+const LANG_NAMES_MAP = {
+  af:'Afrikaans',sq:'Albanian',am:'Amharic',ar:'Arabic',hy:'Armenian',
+  az:'Azerbaijani',eu:'Basque',be:'Belarusian',bn:'Bengali',bs:'Bosnian',
+  bg:'Bulgarian',ca:'Catalan',ceb:'Cebuano','zh-CN':'Chinese (Simplified)',
+  'zh-TW':'Chinese (Traditional)',hr:'Croatian',cs:'Czech',da:'Danish',
+  nl:'Dutch',en:'English',eo:'Esperanto',et:'Estonian',fi:'Finnish',
+  fr:'French',gl:'Galician',ka:'Georgian',de:'German',el:'Greek',
+  gu:'Gujarati',ht:'Haitian Creole',ha:'Hausa',he:'Hebrew',hi:'Hindi',
+  hu:'Hungarian',is:'Icelandic',id:'Indonesian',ga:'Irish',it:'Italian',
+  ja:'Japanese',jv:'Javanese',kn:'Kannada',kk:'Kazakh',km:'Khmer',
+  ko:'Korean',ku:'Kurdish',ky:'Kyrgyz',lo:'Lao',la:'Latin',lv:'Latvian',
+  lt:'Lithuanian',lb:'Luxembourgish',mk:'Macedonian',mg:'Malagasy',
+  ms:'Malay',ml:'Malayalam',mt:'Maltese',mi:'Maori',mr:'Marathi',
+  mn:'Mongolian',my:'Myanmar (Burmese)',ne:'Nepali',no:'Norwegian',
+  fa:'Persian',pl:'Polish',pt:'Portuguese',pa:'Punjabi',ro:'Romanian',
+  ru:'Russian',sm:'Samoan',sr:'Serbian',si:'Sinhala',sk:'Slovak',
+  sl:'Slovenian',so:'Somali',es:'Spanish',su:'Sundanese',sw:'Swahili',
+  sv:'Swedish',tl:'Tagalog (Filipino)',tg:'Tajik',ta:'Tamil',tt:'Tatar',
+  te:'Telugu',th:'Thai',tr:'Turkish',tk:'Turkmen',uk:'Ukrainian',
+  ur:'Urdu',uz:'Uzbek',vi:'Vietnamese',cy:'Welsh',xh:'Xhosa',
+  yi:'Yiddish',yo:'Yoruba',zu:'Zulu',
+};
+
+function normalize(code) {
+  if (!code) return '';
+  const lower = code.toLowerCase();
+  if (lower === 'zh-cn' || lower === 'zh') return 'zh-cn';
+  if (lower === 'zh-tw') return 'zh-tw';
+  return lower.split('-')[0];
+}
+
+// ── Track last known mouse position ──
+let lastMouseX = 0;
+let lastMouseY = 0;
+document.addEventListener('mousemove', (e) => {
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+}, { passive: true });
+
+// ── Auto-translate on selection ──
+let selectionDebounce = null;
+let currentRequestId  = 0;
+
+function handleSelectionEvent(e) {
+  if (!settings.autoTranslateEnabled) return;
+
+  const evX = (e.clientX !== undefined && e.clientX !== 0) ? e.clientX
+    : (e.changedTouches ? e.changedTouches[0].clientX : lastMouseX);
+  const evY = (e.clientY !== undefined && e.clientY !== 0) ? e.clientY
+    : (e.changedTouches ? e.changedTouches[0].clientY : lastMouseY);
+
+  clearTimeout(selectionDebounce);
+  selectionDebounce = setTimeout(() => doTranslateSelection(evX, evY), 420);
+}
+
+async function doTranslateSelection(x, y) {
+  const selection = window.getSelection();
+  const text = selection ? selection.toString().trim() : '';
+
+  if (!text || text.length < 2 || text.length > 600) {
+    removePopup();
+    removeSpinner();
+    return;
+  }
+
+  const reqId = ++currentRequestId;
+  showSpinner(x, y);
+
+  try {
+    const tl  = settings.autoTargetLang || settings.targetLang || 'en';
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(tl)}&dt=t&dt=ld&q=${encodeURIComponent(text)}`;
+
+    const res = await fetch(url);
+    if (reqId !== currentRequestId) return;
+    removeSpinner();
+    if (!res.ok) return;
+
+    const data = await res.json();
+    if (reqId !== currentRequestId) return;
+
+    // Detect language
+    let detected = '';
+    if (data[8] && data[8][0] && data[8][0][0]) detected = data[8][0][0];
+    else if (data[2]) detected = data[2];
+
+    if (!detected) { removePopup(); return; }
+
+    // Apply language list mode
+    const detNorm  = normalize(detected);
+    const langList = (settings.ignoredLangs || []).map(c => normalize(c));
+    const mode     = settings.langListMode || 'ignore';
+
+    if (mode === 'ignore') {
+      // Don't translate languages on the list
+      if (langList.includes(detNorm)) { removePopup(); return; }
+    } else {
+      // Only translate languages on the list
+      if (!langList.includes(detNorm)) { removePopup(); return; }
+    }
+
+    // Assemble translated string
+    let translated = '';
+    if (data[0]) data[0].forEach(seg => { if (seg && seg[0]) translated += seg[0]; });
+    if (!translated) return;
+
+    // Refine popup position to selection bounding box
+    let popX = x;
+    let popY = y;
+    try {
+      const range = selection.getRangeAt(0);
+      const rect  = range.getBoundingClientRect();
+      if (rect && rect.width > 0) {
+        popX = rect.right;
+        popY = rect.bottom;
+      }
+    } catch (_) {}
+
+    const detectedName = LANG_NAMES_MAP[detected] || detected.toUpperCase();
+    createPopup(popX, popY, translated, detectedName, tl);
+
+  } catch (err) {
+    if (reqId === currentRequestId) removeSpinner();
+  }
+}
+
+document.addEventListener('mouseup',  handleSelectionEvent);
+document.addEventListener('touchend', handleSelectionEvent);
+
+document.addEventListener('scroll',  () => { removePopup(); removeSpinner(); }, { passive: true });
+document.addEventListener('keydown',  (e) => { if (e.key === 'Escape') { removePopup(); removeSpinner(); } }, { passive: true });
+
+} // end double-injection guard
