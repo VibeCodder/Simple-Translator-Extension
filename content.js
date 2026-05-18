@@ -35,6 +35,31 @@ chrome.storage.local.get([
   if (result.st_targetLang)       settings.targetLang       = result.st_targetLang;
 });
 
+// ── React to storage changes from popup in real-time (all tabs) ──
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  if ('st_autoTranslateEnabled' in changes) {
+    const v = changes.st_autoTranslateEnabled.newValue;
+    settings.autoTranslateEnabled = v === true || v === 'true';
+  }
+  if ('st_whitelistEnabled' in changes) {
+    const v = changes.st_whitelistEnabled.newValue;
+    settings.whitelistEnabled = v === true || v === 'true';
+  }
+  if ('st_whitelistLangs' in changes && changes.st_whitelistLangs.newValue)
+    settings.whitelistLangs = changes.st_whitelistLangs.newValue;
+  if ('st_blacklistEnabled' in changes) {
+    const v = changes.st_blacklistEnabled.newValue;
+    settings.blacklistEnabled = v === true || v === 'true';
+  }
+  if ('st_blacklistLangs' in changes && changes.st_blacklistLangs.newValue)
+    settings.blacklistLangs = changes.st_blacklistLangs.newValue;
+  if ('st_autoTargetLang' in changes && changes.st_autoTargetLang.newValue)
+    settings.autoTargetLang = changes.st_autoTargetLang.newValue;
+  if ('st_targetLang' in changes && changes.st_targetLang.newValue)
+    settings.targetLang = changes.st_targetLang.newValue;
+});
+
 // ── Listen for messages from popup ──
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'getSelectedText') {
