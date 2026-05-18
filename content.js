@@ -5,26 +5,34 @@ window.__simpleTranslateLoaded = true;
 // ── State ──
 let settings = {
   autoTranslateEnabled: false,
-  ignoredLangs: ['en', 'pl'],   // array of language codes
-  langListMode: 'ignore',        // 'ignore' = skip listed langs | 'translate' = only translate listed langs
-  autoTargetLang: 'en',
-  targetLang: 'en',
+  whitelistEnabled: false,
+  whitelistLangs:   [],
+  blacklistEnabled: true,
+  blacklistLangs:   ['en', 'pl'],
+  autoTargetLang:   'en',
+  targetLang:       'en',
 };
 
 // Load settings from chrome.storage on inject
 chrome.storage.local.get([
   'st_autoTranslateEnabled',
-  'st_ignoredLangs',
-  'st_langListMode',
+  'st_whitelistEnabled',
+  'st_whitelistLangs',
+  'st_blacklistEnabled',
+  'st_blacklistLangs',
   'st_autoTargetLang',
   'st_targetLang',
 ], (result) => {
   if (result.st_autoTranslateEnabled !== undefined)
     settings.autoTranslateEnabled = result.st_autoTranslateEnabled === true || result.st_autoTranslateEnabled === 'true';
-  if (result.st_ignoredLangs)   settings.ignoredLangs   = result.st_ignoredLangs;
-  if (result.st_langListMode)   settings.langListMode    = result.st_langListMode;
-  if (result.st_autoTargetLang) settings.autoTargetLang = result.st_autoTargetLang;
-  if (result.st_targetLang)     settings.targetLang     = result.st_targetLang;
+  if (result.st_whitelistEnabled !== undefined)
+    settings.whitelistEnabled = result.st_whitelistEnabled === true || result.st_whitelistEnabled === 'true';
+  if (result.st_whitelistLangs)   settings.whitelistLangs   = result.st_whitelistLangs;
+  if (result.st_blacklistEnabled !== undefined)
+    settings.blacklistEnabled = result.st_blacklistEnabled === true || result.st_blacklistEnabled === 'true';
+  if (result.st_blacklistLangs)   settings.blacklistLangs   = result.st_blacklistLangs;
+  if (result.st_autoTargetLang)   settings.autoTargetLang   = result.st_autoTargetLang;
+  if (result.st_targetLang)       settings.targetLang       = result.st_targetLang;
 });
 
 // ── Listen for messages from popup ──
@@ -36,23 +44,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     settings = { ...settings, ...request.settings };
     chrome.storage.local.set({
       st_autoTranslateEnabled: settings.autoTranslateEnabled,
-      st_ignoredLangs:         settings.ignoredLangs,
-      st_langListMode:         settings.langListMode,
-      st_autoTargetLang:       settings.autoTargetLang,
-      st_targetLang:           settings.targetLang,
+      st_whitelistEnabled: settings.whitelistEnabled,
+      st_whitelistLangs:   settings.whitelistLangs,
+      st_blacklistEnabled: settings.blacklistEnabled,
+      st_blacklistLangs:   settings.blacklistLangs,
+      st_autoTargetLang:   settings.autoTargetLang,
+      st_targetLang:       settings.targetLang,
     });
   }
   return true;
 });
-
-// ── Inject shared styles once ──
-function ensureStyles() {
-  // no shared styles needed
-}
-
-// ── Spinner (removed) ──
-function showSpinner(x, y) {}
-function removeSpinner() {}
 
 // ── Translation popup ──
 let translatePopup = null;
@@ -66,7 +67,6 @@ function removePopup() {
 }
 
 function createPopup(x, y, translatedText, detectedLangName, targetLangCode) {
-  ensureStyles();
   removePopup();
 
   const popup = document.createElement('div');
@@ -90,15 +90,10 @@ function createPopup(x, y, translatedText, detectedLangName, targetLangCode) {
         border-radius: 3px; transition: color 0.15s;
       ">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-          <!-- up -->
           <polygon points="7,0 5,3 9,3"/>
-          <!-- down -->
           <polygon points="7,14 5,11 9,11"/>
-          <!-- left -->
           <polygon points="0,7 3,5 3,9"/>
-          <!-- right -->
           <polygon points="14,7 11,5 11,9"/>
-          <!-- center cross -->
           <rect x="4.5" y="4.5" width="5" height="5"/>
         </svg>
       </button>
@@ -148,7 +143,6 @@ function createPopup(x, y, translatedText, detectedLangName, targetLangCode) {
   (document.body || document.documentElement).appendChild(popup);
   translatePopup = popup;
 
-  // Measure then position
   const pw = popup.offsetWidth  || 280;
   const ph = popup.offsetHeight || 110;
   const vw = window.innerWidth;
@@ -173,37 +167,30 @@ function createPopup(x, y, translatedText, detectedLangName, targetLangCode) {
     });
   });
 
-  // ── Drag to move (via drag handle only) ──
+  // ── Drag ──
   const dragHandle = popup.querySelector('#__st_drag__');
-  let dragging = false;
-  let dragOffX = 0;
-  let dragOffY = 0;
+  let dragging = false, dragOffX = 0, dragOffY = 0;
 
   dragHandle.addEventListener('mouseenter', () => { if (!dragging) dragHandle.style.color = '#aaa'; });
   dragHandle.addEventListener('mouseleave', () => { if (!dragging) dragHandle.style.color = '#555'; });
 
   dragHandle.addEventListener('mousedown', (e) => {
-    dragging = true;
-    _isDragging = true;
+    dragging = true; _isDragging = true;
     dragOffX = e.clientX - popup.getBoundingClientRect().left;
     dragOffY = e.clientY - popup.getBoundingClientRect().top;
     dragHandle.style.cursor = 'grabbing';
     dragHandle.style.color  = '#4a90d9';
-    e.preventDefault();
-    e.stopPropagation();
-
+    e.preventDefault(); e.stopPropagation();
     document.addEventListener('mousemove', onDragMove);
     document.addEventListener('mouseup',   onDragEnd);
   });
 
   function onDragMove(e) {
     if (!dragging || !translatePopup) return;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
     let nx = e.clientX - dragOffX;
     let ny = e.clientY - dragOffY;
-    nx = Math.max(0, Math.min(nx, vw - popup.offsetWidth));
-    ny = Math.max(0, Math.min(ny, vh - popup.offsetHeight));
+    nx = Math.max(0, Math.min(nx, window.innerWidth  - popup.offsetWidth));
+    ny = Math.max(0, Math.min(ny, window.innerHeight - popup.offsetHeight));
     popup.style.left = nx + 'px';
     popup.style.top  = ny + 'px';
   }
@@ -218,28 +205,20 @@ function createPopup(x, y, translatedText, detectedLangName, targetLangCode) {
     setTimeout(() => { _isDragging = false; }, 0);
   }
 
-  // Delay registering outside-click listener so the mouseup that
-  // triggered the popup (end of text selection) doesn't immediately close it
-  setTimeout(() => {
-    document.addEventListener('mousedown', onOutsideClick);
-  }, 200);
+  setTimeout(() => { document.addEventListener('mousedown', onOutsideClick); }, 200);
 }
 
 let _isDragging = false;
 
 function onOutsideClick(e) {
   if (_isDragging) return;
-  if (translatePopup && !translatePopup.contains(e.target)) {
-    removePopup();
-  }
+  if (translatePopup && !translatePopup.contains(e.target)) removePopup();
 }
 
 function escapeHtml(str) {
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ── Language name map ──
@@ -274,13 +253,9 @@ function normalize(code) {
   return lower.split('-')[0];
 }
 
-// ── Track last known mouse position ──
-let lastMouseX = 0;
-let lastMouseY = 0;
-document.addEventListener('mousemove', (e) => {
-  lastMouseX = e.clientX;
-  lastMouseY = e.clientY;
-}, { passive: true });
+// ── Track last mouse position ──
+let lastMouseX = 0, lastMouseY = 0;
+document.addEventListener('mousemove', (e) => { lastMouseX = e.clientX; lastMouseY = e.clientY; }, { passive: true });
 
 // ── Auto-translate on selection ──
 let selectionDebounce = null;
@@ -303,13 +278,10 @@ async function doTranslateSelection(x, y) {
   const text = selection ? selection.toString().trim() : '';
 
   if (!text || text.length < 2 || text.length > 600) {
-    removePopup();
-    removeSpinner();
-    return;
+    removePopup(); return;
   }
 
   const reqId = ++currentRequestId;
-  showSpinner(x, y);
 
   try {
     const tl  = settings.autoTargetLang || settings.targetLang || 'en';
@@ -317,7 +289,6 @@ async function doTranslateSelection(x, y) {
 
     const res = await fetch(url);
     if (reqId !== currentRequestId) return;
-    removeSpinner();
     if (!res.ok) return;
 
     const data = await res.json();
@@ -327,51 +298,41 @@ async function doTranslateSelection(x, y) {
     let detected = '';
     if (data[8] && data[8][0] && data[8][0][0]) detected = data[8][0][0];
     else if (data[2]) detected = data[2];
-
     if (!detected) { removePopup(); return; }
 
-    // Apply language list mode
-    const detNorm  = normalize(detected);
-    const langList = (settings.ignoredLangs || []).map(c => normalize(c));
-    const mode     = settings.langListMode || 'ignore';
+    const detNorm = normalize(detected);
+    const wl = (settings.whitelistLangs || []).map(c => normalize(c));
+    const bl = (settings.blacklistLangs || []).map(c => normalize(c));
+    const wlOn = settings.whitelistEnabled && wl.length > 0;
+    const blOn = settings.blacklistEnabled && bl.length > 0;
 
-    if (mode === 'ignore') {
-      // Don't translate languages on the list
-      if (langList.includes(detNorm)) { removePopup(); return; }
-    } else {
-      // Only translate languages on the list
-      if (!langList.includes(detNorm)) { removePopup(); return; }
-    }
+    // Rule: if whitelist on+nonempty → only translate listed langs
+    if (wlOn && !wl.includes(detNorm)) { removePopup(); return; }
+    // Rule: if blacklist on+nonempty → skip listed langs
+    if (blOn && bl.includes(detNorm))  { removePopup(); return; }
 
-    // Assemble translated string
+    // Assemble translation
     let translated = '';
     if (data[0]) data[0].forEach(seg => { if (seg && seg[0]) translated += seg[0]; });
     if (!translated) return;
 
-    // Refine popup position to selection bounding box
-    let popX = x;
-    let popY = y;
+    // Refine position to selection bounding box
+    let popX = x, popY = y;
     try {
       const range = selection.getRangeAt(0);
       const rect  = range.getBoundingClientRect();
-      if (rect && rect.width > 0) {
-        popX = rect.right;
-        popY = rect.bottom;
-      }
+      if (rect && rect.width > 0) { popX = rect.right; popY = rect.bottom; }
     } catch (_) {}
 
     const detectedName = LANG_NAMES_MAP[detected] || detected.toUpperCase();
     createPopup(popX, popY, translated, detectedName, tl);
 
-  } catch (err) {
-    if (reqId === currentRequestId) removeSpinner();
-  }
+  } catch (err) { /* silent */ }
 }
 
 document.addEventListener('mouseup',  handleSelectionEvent);
 document.addEventListener('touchend', handleSelectionEvent);
-
-document.addEventListener('scroll',  () => { removePopup(); removeSpinner(); }, { passive: true });
-document.addEventListener('keydown',  (e) => { if (e.key === 'Escape') { removePopup(); removeSpinner(); } }, { passive: true });
+document.addEventListener('scroll',  () => removePopup(), { passive: true });
+document.addEventListener('keydown',  (e) => { if (e.key === 'Escape') removePopup(); }, { passive: true });
 
 } // end double-injection guard

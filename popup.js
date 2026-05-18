@@ -50,7 +50,7 @@ const LANGUAGES = [
 ];
 
 const LANG_NAMES = {};
-const LANG_BY_NAME = {}; // lowercase name → code
+const LANG_BY_NAME = {};
 LANGUAGES.forEach(l => {
   LANG_NAMES[l.code] = l.name;
   LANG_BY_NAME[l.name.toLowerCase()] = l.code;
@@ -73,44 +73,45 @@ const openSettingsBtn      = document.getElementById('openSettingsBtn');
 const closeSettingsBtn     = document.getElementById('closeSettingsBtn');
 const settingsOverlay      = document.getElementById('settingsOverlay');
 const autoTranslateEnabled = document.getElementById('autoTranslateEnabled');
-const autoLangConfig       = document.getElementById('autoLangConfig');
-const ignoredLangsArea     = document.getElementById('ignoredLangsArea');
-const addLangSelect        = document.getElementById('addLangSelect');
-const addLangBtn           = document.getElementById('addLangBtn');
-const autoTargetLang       = document.getElementById('autoTargetLang');
-const modeTranslateThese   = document.getElementById('modeTranslateThese');
-const modeDontTranslate    = document.getElementById('modeDontTranslate');
+
+// Whitelist
+const whitelistEnabled   = document.getElementById('whitelistEnabled');
+const whitelistArea      = document.getElementById('whitelistArea');
+const addWhitelistSelect = document.getElementById('addWhitelistSelect');
+const addWhitelistBtn    = document.getElementById('addWhitelistBtn');
+
+// Blacklist
+const blacklistEnabled   = document.getElementById('blacklistEnabled');
+const blacklistArea      = document.getElementById('blacklistArea');
+const addBlacklistSelect = document.getElementById('addBlacklistSelect');
+const addBlacklistBtn    = document.getElementById('addBlacklistBtn');
+
+// Auto-target lang
+const autoTargetLang     = document.getElementById('autoTargetLang');
 
 let debounceTimer  = null;
 let translatedText = '';
 let detectedCode   = 'auto';
 
-// ── Ignored languages helpers ──
-// Parse the textarea: comma/newline separated list of language names or codes
-function parseIgnoredList(raw) {
-  return raw
-    .split(/[\n,]+/)
-    .map(s => s.trim())
-    .filter(Boolean);
+// ── Helpers ──
+function parseList(raw) {
+  return raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
 }
 
-function serializeIgnoredList(names) {
+function serializeList(names) {
   return names.join(', ');
 }
 
-function getIgnoredCodes() {
-  const raw = ignoredLangsArea.value;
-  const entries = parseIgnoredList(raw);
+function getCodesFromArea(textarea) {
+  const entries = parseList(textarea.value);
   const codes = new Set();
   entries.forEach(entry => {
     const lower = entry.toLowerCase();
-    // try matching by code first, then by name
     if (LANG_NAMES[lower]) {
       codes.add(lower);
     } else if (LANG_BY_NAME[lower]) {
       codes.add(LANG_BY_NAME[lower]);
     } else {
-      // try matching by code case-insensitively
       const found = LANGUAGES.find(l => l.code.toLowerCase() === lower);
       if (found) codes.add(found.code);
     }
@@ -118,59 +119,104 @@ function getIgnoredCodes() {
   return codes;
 }
 
-// ── Populate dropdowns ──
-function populateDropdown() {
+function addLangToArea(textarea, langName) {
+  if (!langName) return;
+  const current = parseList(textarea.value);
+  if (!current.some(e => e.toLowerCase() === langName.toLowerCase())) {
+    current.push(langName);
+    textarea.value = serializeList(current);
+  }
+}
+
+// ── Save helpers (chrome.storage.local) ──
+function saveWhitelistCodes() {
+  chrome.storage.local.set({ st_whitelistLangs: Array.from(getCodesFromArea(whitelistArea)) });
+}
+
+function saveBlacklistCodes() {
+  chrome.storage.local.set({ st_blacklistLangs: Array.from(getCodesFromArea(blacklistArea)) });
+}
+
+// ── Populate dropdowns (sync, no storage access) ──
+function populateDropdowns() {
   LANGUAGES.forEach(lang => {
     const opt = document.createElement('option');
     opt.value = lang.code;
     opt.textContent = lang.name;
     targetLangSel.appendChild(opt);
+
+    const o1 = document.createElement('option');
+    o1.value = lang.name; o1.textContent = lang.name;
+    addWhitelistSelect.appendChild(o1);
+
+    const o2 = document.createElement('option');
+    o2.value = lang.name; o2.textContent = lang.name;
+    addBlacklistSelect.appendChild(o2);
+
+    const o3 = document.createElement('option');
+    o3.value = lang.code; o3.textContent = lang.name;
+    autoTargetLang.appendChild(o3);
   });
-  const saved = localStorage.getItem('st_targetLang') || 'en';
-  targetLangSel.value = saved;
 }
 
-function populateSettingsDropdowns() {
-  // Add-language picker
-  LANGUAGES.forEach(lang => {
-    const opt1 = document.createElement('option');
-    opt1.value = lang.name;
-    opt1.textContent = lang.name;
-    addLangSelect.appendChild(opt1);
+// ── Apply storage values to UI ──
+function initFromStorage(result) {
+  targetLangSel.value = result.st_targetLang || 'en';
 
-    const opt2 = document.createElement('option');
-    opt2.value = lang.code;
-    opt2.textContent = lang.name;
-    autoTargetLang.appendChild(opt2);
-  });
+  autoTranslateEnabled.checked =
+    result.st_autoTranslateEnabled === true || result.st_autoTranslateEnabled === 'true';
 
-  // Load saved ignored list
-  const savedIgnored = localStorage.getItem('st_ignoredLangs') || 'English, Polish';
-  ignoredLangsArea.value = savedIgnored;
+  whitelistEnabled.checked =
+    result.st_whitelistEnabled === true || result.st_whitelistEnabled === 'true';
 
-  // Load saved mode (translate these / don't translate these)
-  const savedMode = localStorage.getItem('st_langListMode') || 'ignore';
-  if (savedMode === 'translate') {
-    modeTranslateThese.checked = true;
+  // Convert stored code arrays back to names for textarea display
+  const wlCodes = result.st_whitelistLangs;
+  if (wlCodes && wlCodes.length > 0) {
+    whitelistArea.value = wlCodes.map(c => LANG_NAMES[c] || c).join(', ');
   } else {
-    modeDontTranslate.checked = true;
+    whitelistArea.value = '';
   }
 
-  // Load saved auto-target lang
-  autoTargetLang.value = localStorage.getItem('st_autoTargetLang') || 'en';
+  // blacklistEnabled defaults to true if never set
+  const blStored = result.st_blacklistEnabled;
+  blacklistEnabled.checked = blStored === undefined || blStored === true || blStored === 'true';
 
-  // Load toggle
-  const enabled = localStorage.getItem('st_autoTranslateEnabled') === 'true';
-  autoTranslateEnabled.checked = enabled;
-  autoLangConfig.classList.toggle('visible', enabled);
+  const blCodes = result.st_blacklistLangs;
+  if (blCodes && blCodes.length > 0) {
+    blacklistArea.value = blCodes.map(c => LANG_NAMES[c] || c).join(', ');
+  } else {
+    blacklistArea.value = 'English, Polish';
+  }
+
+  autoTargetLang.value = result.st_autoTargetLang || 'en';
+
+  // Now that UI reflects real stored state, push to active tab
+  pushSettingsToContentScript();
+
+  // Fetch any selected text from the active tab
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (!tabs[0]?.id) { sourceText.focus(); return; }
+    chrome.scripting.executeScript(
+      { target: { tabId: tabs[0].id }, func: () => window.getSelection().toString().trim() },
+      (results) => {
+        if (chrome.runtime.lastError || !results || !results[0]?.result) {
+          sourceText.focus(); return;
+        }
+        const selected = results[0].result;
+        if (selected) { sourceText.value = selected; translate(); }
+        else { sourceText.focus(); }
+      }
+    );
+  });
 }
 
+// ── Main target lang change ──
 targetLangSel.addEventListener('change', () => {
-  localStorage.setItem('st_targetLang', targetLangSel.value);
+  chrome.storage.local.set({ st_targetLang: targetLangSel.value });
   if (sourceText.value.trim()) translate();
 });
 
-// ── Settings panel ──
+// ── Settings open/close ──
 openSettingsBtn.addEventListener('click', () => {
   settingsOverlay.classList.add('open');
 });
@@ -180,57 +226,67 @@ closeSettingsBtn.addEventListener('click', () => {
   pushSettingsToContentScript();
 });
 
+// ── Master enable toggle ──
 autoTranslateEnabled.addEventListener('change', () => {
-  const enabled = autoTranslateEnabled.checked;
-  localStorage.setItem('st_autoTranslateEnabled', enabled);
-  autoLangConfig.classList.toggle('visible', enabled);
+  chrome.storage.local.set({ st_autoTranslateEnabled: autoTranslateEnabled.checked });
   pushSettingsToContentScript();
 });
 
-// Save ignored list on edit
-ignoredLangsArea.addEventListener('input', () => {
-  localStorage.setItem('st_ignoredLangs', ignoredLangsArea.value);
+// ── Whitelist toggle ──
+whitelistEnabled.addEventListener('change', () => {
+  chrome.storage.local.set({ st_whitelistEnabled: whitelistEnabled.checked });
   pushSettingsToContentScript();
 });
 
-// Radio buttons — list mode
-[modeTranslateThese, modeDontTranslate].forEach(radio => {
-  radio.addEventListener('change', () => {
-    localStorage.setItem('st_langListMode', radio.value);
-    pushSettingsToContentScript();
-  });
+whitelistArea.addEventListener('input', () => {
+  saveWhitelistCodes();
+  pushSettingsToContentScript();
 });
 
-// Add language button
-addLangBtn.addEventListener('click', () => {
-  const langName = addLangSelect.value;
-  if (!langName) return;
-
-  const current = parseIgnoredList(ignoredLangsArea.value);
-  // Avoid duplicates (case-insensitive)
-  if (!current.some(e => e.toLowerCase() === langName.toLowerCase())) {
-    current.push(langName);
-    ignoredLangsArea.value = serializeIgnoredList(current);
-    localStorage.setItem('st_ignoredLangs', ignoredLangsArea.value);
-    pushSettingsToContentScript();
-  }
+addWhitelistBtn.addEventListener('click', () => {
+  addLangToArea(whitelistArea, addWhitelistSelect.value);
+  saveWhitelistCodes();
+  pushSettingsToContentScript();
 });
 
-// Save auto-target lang
+// ── Blacklist toggle ──
+blacklistEnabled.addEventListener('change', () => {
+  chrome.storage.local.set({ st_blacklistEnabled: blacklistEnabled.checked });
+  pushSettingsToContentScript();
+});
+
+blacklistArea.addEventListener('input', () => {
+  saveBlacklistCodes();
+  pushSettingsToContentScript();
+});
+
+addBlacklistBtn.addEventListener('click', () => {
+  addLangToArea(blacklistArea, addBlacklistSelect.value);
+  saveBlacklistCodes();
+  pushSettingsToContentScript();
+});
+
+// ── Auto-target lang ──
 autoTargetLang.addEventListener('change', () => {
-  localStorage.setItem('st_autoTargetLang', autoTargetLang.value);
+  chrome.storage.local.set({ st_autoTargetLang: autoTargetLang.value });
   pushSettingsToContentScript();
 });
 
+// ── Push settings to content script ──
 function pushSettingsToContentScript() {
-  const ignoredCodes = Array.from(getIgnoredCodes());
+  const whitelistCodes = Array.from(getCodesFromArea(whitelistArea));
+  const blacklistCodes = Array.from(getCodesFromArea(blacklistArea));
+
   const settings = {
     autoTranslateEnabled: autoTranslateEnabled.checked,
-    ignoredLangs: ignoredCodes,
-    langListMode: modeTranslateThese.checked ? 'translate' : 'ignore',
-    autoTargetLang: autoTargetLang.value,
-    targetLang: targetLangSel.value,
+    whitelistEnabled: whitelistEnabled.checked,
+    whitelistLangs:   whitelistCodes,
+    blacklistEnabled: blacklistEnabled.checked,
+    blacklistLangs:   blacklistCodes,
+    autoTargetLang:   autoTargetLang.value,
+    targetLang:       targetLangSel.value,
   };
+
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (!tabs[0]?.id) return;
     chrome.tabs.sendMessage(tabs[0].id, { action: 'updateSettings', settings })
@@ -274,9 +330,7 @@ async function translate() {
   }
 }
 
-function setResult(text) {
-  resultText.textContent = text;
-}
+function setResult(text) { resultText.textContent = text; }
 
 function clearResult() {
   translatedText = '';
@@ -285,20 +339,11 @@ function clearResult() {
   resultText.innerHTML = '<span class="placeholder"></span>';
 }
 
-function setSpinner(on) {
-  spinner.style.display = on ? 'block' : 'none';
-}
+function setSpinner(on)  { spinner.style.display = on ? 'block' : 'none'; }
+function showError(msg)  { errorBanner.textContent = msg; errorBanner.style.display = 'block'; }
+function hideError()     { errorBanner.style.display = 'none'; }
 
-function showError(msg) {
-  errorBanner.textContent = msg;
-  errorBanner.style.display = 'block';
-}
-
-function hideError() {
-  errorBanner.style.display = 'none';
-}
-
-// ── Input handler with debounce ──
+// ── Input debounce ──
 sourceText.addEventListener('input', () => {
   clearTimeout(debounceTimer);
   if (!sourceText.value.trim()) { clearResult(); return; }
@@ -314,7 +359,16 @@ copyBtn.addEventListener('click', () => {
   });
 });
 
-// ── Text-to-speech via Google TTS ──
+copySourceBtn.addEventListener('click', () => {
+  const text = sourceText.value.trim();
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    copySourceBtn.classList.add('active');
+    setTimeout(() => copySourceBtn.classList.remove('active'), 1500);
+  });
+});
+
+// ── TTS ──
 function speak(text, langCode) {
   if (!text) return;
   const lang = langCode === 'auto' ? 'en' : langCode;
@@ -329,48 +383,17 @@ function speak(text, langCode) {
   });
 }
 
-copySourceBtn.addEventListener('click', () => {
-  const text = sourceText.value.trim();
-  if (!text) return;
-  navigator.clipboard.writeText(text).then(() => {
-    copySourceBtn.classList.add('active');
-    setTimeout(() => copySourceBtn.classList.remove('active'), 1500);
-  });
-});
+speakSourceBtn.addEventListener('click', () => speak(sourceText.value.trim(), detectedCode));
+speakResultBtn.addEventListener('click', () => speak(translatedText, targetLangSel.value));
 
-speakSourceBtn.addEventListener('click', () => {
-  speak(sourceText.value.trim(), detectedCode);
-});
-
-speakResultBtn.addEventListener('click', () => {
-  speak(translatedText, targetLangSel.value);
-});
-
-// ── Init ──
-populateDropdown();
-populateSettingsDropdowns();
-pushSettingsToContentScript();
-
-// Fetch selected text from page
-chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-  if (!tabs[0]?.id) { sourceText.focus(); return; }
-  chrome.scripting.executeScript(
-    {
-      target: { tabId: tabs[0].id },
-      func: () => window.getSelection().toString().trim()
-    },
-    (results) => {
-      if (chrome.runtime.lastError || !results || !results[0]?.result) {
-        sourceText.focus();
-        return;
-      }
-      const selected = results[0].result;
-      if (selected) {
-        sourceText.value = selected;
-        translate();
-      } else {
-        sourceText.focus();
-      }
-    }
-  );
-});
+// ── Init: populate dropdowns, then load state from chrome.storage.local ──
+populateDropdowns();
+chrome.storage.local.get([
+  'st_targetLang',
+  'st_autoTranslateEnabled',
+  'st_whitelistEnabled',
+  'st_whitelistLangs',
+  'st_blacklistEnabled',
+  'st_blacklistLangs',
+  'st_autoTargetLang',
+], initFromStorage);
