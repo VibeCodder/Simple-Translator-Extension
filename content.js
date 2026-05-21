@@ -65,18 +65,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'getSelectedText') {
     sendResponse({ text: window.getSelection().toString().trim() });
   }
-  if (request.action === 'updateSettings') {
-    settings = { ...settings, ...request.settings };
-    chrome.storage.local.set({
-      st_autoTranslateEnabled: settings.autoTranslateEnabled,
-      st_whitelistEnabled: settings.whitelistEnabled,
-      st_whitelistLangs:   settings.whitelistLangs,
-      st_blacklistEnabled: settings.blacklistEnabled,
-      st_blacklistLangs:   settings.blacklistLangs,
-      st_autoTargetLang:   settings.autoTargetLang,
-      st_targetLang:       settings.targetLang,
-    });
-  }
   return true;
 });
 
@@ -99,8 +87,6 @@ function createPopup(x, y, translatedText, detectedLangName, targetLangCode) {
 
   const targetName = LANG_NAMES_MAP[targetLangCode] || targetLangCode.toUpperCase();
 
-  // Inject scoped stylesheet once — handles dark scrollbar + resets button styles
-  // against host-page CSS (all: unset beats any inherited button { } rules)
   if (!document.getElementById('__st_styles__')) {
     const styleEl = document.createElement('style');
     styleEl.id = '__st_styles__';
@@ -212,7 +198,6 @@ function createPopup(x, y, translatedText, detectedLangName, targetLangCode) {
     });
   });
 
-  // ── Drag ──
   const dragHandle = popup.querySelector('#__st_drag__');
   let dragging = false, dragOffX = 0, dragOffY = 0;
 
@@ -266,7 +251,6 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// ── Language name map ──
 const LANG_NAMES_MAP = {
   af:'Afrikaans',sq:'Albanian',am:'Amharic',ar:'Arabic',hy:'Armenian',
   az:'Azerbaijani',eu:'Basque',be:'Belarusian',bn:'Bengali',bs:'Bosnian',
@@ -298,16 +282,14 @@ function normalize(code) {
   return lower.split('-')[0];
 }
 
-// ── Track last mouse position ──
 let lastMouseX = 0, lastMouseY = 0;
 document.addEventListener('mousemove', (e) => { lastMouseX = e.clientX; lastMouseY = e.clientY; }, { passive: true });
 
-// ── Auto-translate on selection ──
 let selectionDebounce = null;
 let currentRequestId  = 0;
 
 function handleSelectionEvent(e) {
-  if (!settings.autoTranslateEnabled) return;
+  if (settings.autoTranslateEnabled !== true) return; // Zabezpieczenie przed niewłaściwym typem
 
   const evX = (e.clientX !== undefined && e.clientX !== 0) ? e.clientX
     : (e.changedTouches ? e.changedTouches[0].clientX : lastMouseX);
@@ -319,6 +301,8 @@ function handleSelectionEvent(e) {
 }
 
 async function doTranslateSelection(x, y) {
+  if (settings.autoTranslateEnabled !== true) return; // Drugie zabezpieczenie
+  
   const selection = window.getSelection();
   const text = selection ? selection.toString().trim() : '';
 
@@ -339,7 +323,6 @@ async function doTranslateSelection(x, y) {
     const data = await res.json();
     if (reqId !== currentRequestId) return;
 
-    // Detect language
     let detected = '';
     if (data[8] && data[8][0] && data[8][0][0]) detected = data[8][0][0];
     else if (data[2]) detected = data[2];
@@ -351,25 +334,24 @@ async function doTranslateSelection(x, y) {
     const wlOn = settings.whitelistEnabled && wl.length > 0;
     const blOn = settings.blacklistEnabled && bl.length > 0;
 
-    // Rule: if whitelist on+nonempty → only translate listed langs
     if (wlOn && !wl.includes(detNorm)) { removePopup(); return; }
-    // Rule: if blacklist on+nonempty → skip listed langs
     if (blOn && bl.includes(detNorm))  { removePopup(); return; }
 
-    // Assemble translation
     let translated = '';
     if (data[0]) data[0].forEach(seg => { if (seg && seg[0]) translated += seg[0]; });
     if (!translated) return;
 
-    // Refine position to selection bounding box
     let popX = x, popY = y;
     try {
       const range = selection.getRangeAt(0);
       const rect  = range.getBoundingClientRect();
-      if (rect && rect.width > 0) { popX = rect.right; popY = rect.bottom; }
+      if (rect && rect.width > 0) { 
+        popX = rect.right + window.scrollX; 
+        popY = rect.bottom + window.scrollY; 
+      }
     } catch (_) {}
 
-    const detectedName = LANG_NAMES_MAP[detected] || detected.toUpperCase();
+    const detectedName = (typeof LANG_NAMES_MAP !== 'undefined' && LANG_NAMES_MAP[detected]) ? LANG_NAMES_MAP[detected] : detected.toUpperCase();
     createPopup(popX, popY, translated, detectedName, tl);
 
   } catch (err) { /* silent */ }
