@@ -99,6 +99,26 @@ function createPopup(x, y, translatedText, detectedLangName, targetLangCode) {
 
   const targetName = LANG_NAMES_MAP[targetLangCode] || targetLangCode.toUpperCase();
 
+  // Inject scoped stylesheet once — handles dark scrollbar + resets button styles
+  // against host-page CSS (all: unset beats any inherited button { } rules)
+  if (!document.getElementById('__st_styles__')) {
+    const styleEl = document.createElement('style');
+    styleEl.id = '__st_styles__';
+    styleEl.textContent = `
+      #__simple_translate_popup__ #__st_body__::-webkit-scrollbar { width: 6px !important; }
+      #__simple_translate_popup__ #__st_body__::-webkit-scrollbar-track { background: #1a1a1a !important; }
+      #__simple_translate_popup__ #__st_body__::-webkit-scrollbar-thumb { background: #4a4a4a !important; border-radius: 3px !important; }
+      #__simple_translate_popup__ #__st_body__::-webkit-scrollbar-thumb:hover { background: #5a5a5a !important; }
+      #__st_drag__ { all: unset !important; box-sizing: border-box !important; cursor: grab !important; color: #555 !important; padding: 1px 4px 1px 0 !important; flex-shrink: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important; border-radius: 3px !important; }
+      #__st_drag__:hover { color: #aaa !important; }
+      #__st_close__ { all: unset !important; box-sizing: border-box !important; cursor: pointer !important; color: #555 !important; font-size: 14px !important; line-height: 1 !important; padding: 0 4px !important; border-radius: 3px !important; flex-shrink: 0 !important; }
+      #__st_close__:hover { color: #ccc !important; background: rgba(255,255,255,0.08) !important; }
+      #__st_copy__ { all: unset !important; box-sizing: border-box !important; cursor: pointer !important; background: #252525 !important; border: 1px solid #3a3a3a !important; color: #888 !important; font-size: 11px !important; padding: 3px 8px !important; border-radius: 4px !important; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important; }
+      #__st_copy__:hover { background: #2e2e2e !important; color: #bbb !important; border-color: #555 !important; }
+    `;
+    (document.head || document.documentElement).appendChild(styleEl);
+  }
+
   popup.innerHTML = `
     <div id="__st_header__" style="
       padding: 7px 10px 6px;
@@ -108,12 +128,7 @@ function createPopup(x, y, translatedText, detectedLangName, targetLangCode) {
       gap: 8px;
       user-select: none;
     ">
-      <button id="__st_drag__" title="Move" style="
-        background: none; border: none; cursor: grab;
-        color: #555; padding: 1px 4px 1px 0; flex-shrink: 0;
-        display: flex; align-items: center; justify-content: center;
-        border-radius: 3px; transition: color 0.15s;
-      ">
+      <button id="__st_drag__" title="Move">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
           <polygon points="7,0 5,3 9,3"/>
           <polygon points="7,14 5,11 9,11"/>
@@ -125,26 +140,19 @@ function createPopup(x, y, translatedText, detectedLangName, targetLangCode) {
       <span style="font-size: 11px; color: #4a90d9; font-weight: 500; white-space: nowrap; flex: 1;">
         ${escapeHtml(detectedLangName)} &rarr; ${escapeHtml(targetName)}
       </span>
-      <button id="__st_close__" style="
-        background: none; border: none; cursor: pointer;
-        color: #555; font-size: 14px; line-height: 1;
-        padding: 0 2px; border-radius: 3px; flex-shrink: 0;
-      " title="Close">&#x2715;</button>
+      <button id="__st_close__" title="Close">&#x2715;</button>
     </div>
-    <div style="
+    <div id="__st_body__" style="
       padding: 10px 12px; line-height: 1.55;
       word-break: break-word; max-height: 160px; overflow-y: auto;
+      scrollbar-width: thin; scrollbar-color: #4a4a4a #1a1a1a;
     ">${escapeHtml(translatedText)}</div>
     <div style="
       padding: 5px 10px;
       display: flex; justify-content: flex-end;
       border-top: 1px solid #2a2a2a;
     ">
-      <button id="__st_copy__" style="
-        background: none; border: 1px solid #3a3a3a; cursor: pointer;
-        color: #888; font-size: 11px; padding: 3px 8px; border-radius: 4px;
-        font-family: inherit;
-      ">Copy</button>
+      <button id="__st_copy__">Copy</button>
     </div>
   `;
 
@@ -160,9 +168,10 @@ function createPopup(x, y, translatedText, detectedLangName, targetLangCode) {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-size: 13px;
     color: #e0e0e0;
-    overflow: hidden;
+    overflow: visible;
     visibility: hidden;
     left: 0; top: 0;
+    clip-path: inset(0 round 8px);
   `;
 
   (document.body || document.documentElement).appendChild(popup);
@@ -188,7 +197,18 @@ function createPopup(x, y, translatedText, detectedLangName, targetLangCode) {
   popup.querySelector('#__st_copy__').addEventListener('click', () => {
     navigator.clipboard.writeText(translatedText).then(() => {
       const btn = popup.querySelector('#__st_copy__');
-      if (btn) { btn.textContent = 'Copied!'; btn.style.color = '#4a90d9'; }
+      if (btn) {
+        btn.textContent = 'Copied!';
+        btn.style.setProperty('color', '#4a90d9', 'important');
+        btn.style.setProperty('border-color', '#2a5080', 'important');
+        setTimeout(() => {
+          if (btn) {
+            btn.textContent = 'Copy';
+            btn.style.removeProperty('color');
+            btn.style.removeProperty('border-color');
+          }
+        }, 1800);
+      }
     });
   });
 
