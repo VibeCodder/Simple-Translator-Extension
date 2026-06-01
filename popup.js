@@ -238,6 +238,10 @@ autoTargetLang.addEventListener('change', () => {
   chrome.storage.local.set({ st_autoTargetLang: autoTargetLang.value });
 });
 
+targetLangSel.addEventListener('change', () => {
+  chrome.storage.local.set({ st_targetLang: targetLangSel.value });
+});
+
 
 
 async function translate() {
