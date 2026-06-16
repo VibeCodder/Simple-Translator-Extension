@@ -240,6 +240,7 @@ autoTargetLang.addEventListener('change', () => {
 
 targetLangSel.addEventListener('change', () => {
   chrome.storage.local.set({ st_targetLang: targetLangSel.value });
+  if (sourceText.value.trim()) translate();
 });
 
 
