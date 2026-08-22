@@ -57,6 +57,8 @@ LANGUAGES.forEach(l => {
 });
 
 const sourceText       = document.getElementById('sourceText');
+const sourceLangSel    = document.getElementById('sourceLang');
+const swapLangBtn      = document.getElementById('swapLangBtn');
 const targetLangSel    = document.getElementById('targetLang');
 const resultText       = document.getElementById('resultText');
 const detectedLang     = document.getElementById('detectedLang');
@@ -137,6 +139,11 @@ function populateDropdowns() {
     opt.textContent = lang.name;
     targetLangSel.appendChild(opt);
 
+    const optSrc = document.createElement('option');
+    optSrc.value = lang.code;
+    optSrc.textContent = lang.name;
+    sourceLangSel.appendChild(optSrc);
+
     const o1 = document.createElement('option');
     o1.value = lang.name; o1.textContent = lang.name;
     addWhitelistSelect.appendChild(o1);
@@ -153,6 +160,7 @@ function populateDropdowns() {
 
 function initFromStorage(result) {
   targetLangSel.value = result.st_targetLang || 'en';
+  sourceLangSel.value = result.st_sourceLang || 'pl';
 
   autoTranslateEnabled.checked = result.st_autoTranslateEnabled === true || result.st_autoTranslateEnabled === 'true';
   whitelistEnabled.checked = result.st_whitelistEnabled === true || result.st_whitelistEnabled === 'true';
@@ -241,6 +249,26 @@ autoTargetLang.addEventListener('change', () => {
 targetLangSel.addEventListener('change', () => {
   chrome.storage.local.set({ st_targetLang: targetLangSel.value });
   if (sourceText.value.trim()) translate();
+});
+
+// Left button is display-only (doesn't affect the actual translation call,
+// which always auto-detects the source language) - just persist its state.
+sourceLangSel.addEventListener('change', () => {
+  chrome.storage.local.set({ st_sourceLang: sourceLangSel.value });
+});
+
+swapLangBtn.addEventListener('click', () => {
+  const srcVal = sourceLangSel.value;
+  const tgtVal = targetLangSel.value;
+
+  sourceLangSel.value = tgtVal;
+  targetLangSel.value = srcVal;
+
+  // Fire the same 'change' event each select would fire if picked manually,
+  // so storage saving (and, for the target select, re-translation) happens
+  // exactly the same way.
+  sourceLangSel.dispatchEvent(new Event('change'));
+  targetLangSel.dispatchEvent(new Event('change'));
 });
 
 
