@@ -264,11 +264,17 @@ swapLangBtn.addEventListener('click', () => {
   sourceLangSel.value = tgtVal;
   targetLangSel.value = srcVal;
 
-  // Fire the same 'change' event each select would fire if picked manually,
-  // so storage saving (and, for the target select, re-translation) happens
-  // exactly the same way.
-  sourceLangSel.dispatchEvent(new Event('change'));
-  targetLangSel.dispatchEvent(new Event('change'));
+  // Save both values in a single atomic write instead of dispatching two
+  // separate 'change' events (which triggered two independent async
+  // storage.set calls). If the popup is closed right after clicking swap,
+  // Chrome can tear down the popup before both separate writes finish,
+  // silently dropping one of them. One combined write closes that gap.
+  chrome.storage.local.set(
+    { st_sourceLang: tgtVal, st_targetLang: srcVal },
+    () => {
+      if (sourceText.value.trim()) translate();
+    }
+  );
 });
 
 
@@ -364,6 +370,7 @@ speakResultBtn.addEventListener('click', () => speak(translatedText, targetLangS
 populateDropdowns();
 chrome.storage.local.get([
   'st_targetLang',
+  'st_sourceLang',
   'st_autoTranslateEnabled',
   'st_whitelistEnabled',
   'st_whitelistLangs',
