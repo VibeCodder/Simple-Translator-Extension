@@ -1,5 +1,5 @@
 <img width="469" height="129" alt="logo" src="https://github.com/user-attachments/assets/3d8c0433-1220-4f28-aeac-20b72c426b25" />
-<br>
+<br><br>
 Translation tool that enables both translate in text box or in popup (by selecting text to translate).<br>
 Made with Clayude.
 
