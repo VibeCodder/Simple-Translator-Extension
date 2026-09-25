@@ -4,7 +4,7 @@
 # Simple Translate - browser extension
 
 Translation tool that enables both translate in text box or in popup (by selecting text to translate).<br>
-Made with Clayude.
+Made with Claude.
 
 <br>
 
