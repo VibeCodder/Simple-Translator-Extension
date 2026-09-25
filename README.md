@@ -1,9 +1,12 @@
 <img width="469" height="129" alt="logo" src="https://github.com/user-attachments/assets/3d8c0433-1220-4f28-aeac-20b72c426b25" />
 <br><br>
+
+# Simple Translate - browser extension
+
 Translation tool that enables both translate in text box or in popup (by selecting text to translate).<br>
 Made with Clayude.
 
-<br><br>
+<br>
 
 <img width="555" height="693" alt="cnM9a1X8JM" src="https://github.com/user-attachments/assets/f4d97444-5dda-4766-8f4a-51af830c7c28" />
 
